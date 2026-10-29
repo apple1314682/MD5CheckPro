@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MD5 校验工具 Pro</title>
+<style>
+:root{
+  --bg:#141416; --bg2:#1a1a1e;
+  --card:#232327; --card2:#2a2a30;
+  --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.13);
+  --text:#f5f5f7; --sub:#a1a1a6; --dim:#6e6e73;
+  --accent:#0a84ff; --accent-soft:rgba(10,132,255,.14);
+  --green:#30d158; --red:#ff453a; --yellow:#ffd60a;
+  --mono:'Cascadia Mono','Cascadia Code',Consolas,'Courier New',monospace;
+  --sans:'Segoe UI Variable Text','Segoe UI','Microsoft YaHei UI',system-ui,sans-serif;
+  --ease:cubic-bezier(.22,.7,.3,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{background:radial-gradient(1200px 500px at 50% -220px, rgba(10,132,255,.10), transparent 62%), linear-gradient(180deg,var(--bg2),var(--bg) 340px);
+     color:var(--text);font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased;user-select:none}
+svg{display:block}
+button{font-family:var(--sans)}
+
+/* ---------- 标题栏 ---------- */
+#titlebar{height:44px;display:flex;align-items:center;position:relative;flex:none}
+.lights{display:flex;gap:8px;align-items:center;padding:0 0 0 16px;z-index:2}
+.lt{width:12px;height:12px;border-radius:50%;border:none;padding:0;cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative}
+.lt svg{width:8px;height:8px;opacity:0;transition:opacity .12s}
+.lights:hover .lt svg{opacity:.6}
+.lt.close{background:#ff5f57;color:#4d0000}
+.lt.min{background:#febc2e;color:#5c4000}
+.lt.max{background:#28c840;color:#004d00}
+.lt.close:hover{background:#ff6f68}
+.tb-drag{flex:1;height:100%;display:flex;align-items:center;justify-content:center;position:relative;z-index:1}
+.tb-title{display:flex;align-items:center;gap:8px;pointer-events:none}
+.tname{font-size:13px;font-weight:600;letter-spacing:.2px}
+.ver{font-size:9px;font-weight:700;letter-spacing:.4px;color:#fff;background:linear-gradient(135deg,#0a84ff,#64d2ff);border-radius:999px;padding:2px 8px}
+.tb-right{width:52px}
+
+/* ---------- 主区 ---------- */
+main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18px 14px;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+
+#topRow{display:flex;gap:12px;flex:none}
+#dropzone{flex:1.55;display:flex;align-items:center;gap:14px;padding:18px 18px;min-width:0;cursor:pointer;
+  border:1.5px dashed rgba(255,255,255,.16);
+  background:linear-gradient(180deg,rgba(10,132,255,.09),rgba(10,132,255,.02))}
+#dropzone:hover{border-color:rgba(10,132,255,.55);background:linear-gradient(180deg,rgba(10,132,255,.14),rgba(10,132,255,.04))}
+.dz-left{display:flex;align-items:center;gap:13px;flex:1;min-width:0}
+.iconring{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#7db8ff;
+  background:radial-gradient(circle at 30% 28%, rgba(10,132,255,.38), rgba(10,132,255,.10))}
+.dz-title{font-size:14px;font-weight:600}
+.dz-sub{font-size:11.5px;color:var(--sub);margin-top:2px}
+.dz-actions{display:flex;flex-direction:column;gap:8px;flex:none}
+
+#verify{flex:1;display:flex;flex-direction:column;gap:10px;padding:15px 16px;min-width:300px}
+.v-head{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;color:var(--text)}
+.v-head svg{color:var(--accent)}
+.field{width:100%;background:rgba(0,0,0,.28);border:1px solid var(--line2);border-radius:9px;color:var(--text);
+  font:500 12.5px var(--mono);padding:9px 12px;outline:none;transition:.15s;letter-spacing:.3px}
+.field::placeholder{color:var(--dim);font-family:var(--sans);font-weight:400}
+.field:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(10,132,255,.22)}
+.v-hint{font-size:11px;color:var(--dim)}
+.v-hint b.ok{color:var(--green);font-weight:600}
+.v-hint b.bad{color:var(--red);font-weight:600}
+
+/* ---------- 按钮 ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:rgba(255,255,255,.06);
+  border:1px solid var(--line2);color:var(--text);font:500 12px var(--sans);padding:7px 13px;border-radius:9px;cursor:pointer;
+  transition:background .12s,border-color .12s,transform .06s;white-space:nowrap}
+.btn:hover:not(:disabled){background:rgba(255,255,255,.11)}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn:disabled{opacity:.32;cursor:default}
+.btn.primary{background:var(--accent);border-color:transparent;color:#fff}
+.btn.primary:hover{background:#2492ff}
+.btn.danger:hover:not(:disabled){background:rgba(255,69,58,.16);border-color:rgba(255,69,58,.45)}
+.btn svg{flex:none}
+
+/* ---------- 结果列表 ---------- */
+#list{flex:1;min-height:0;position:relative;overflow-y:auto;overflow-x:hidden;padding:2px}
+#list::-webkit-scrollbar{width:9px}
+#list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.13);border-radius:99px;border:2.5px solid transparent;background-clip:content-box}
+#list::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.24);background-clip:content-box}
+#empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--dim);pointer-events:none}
+#empty svg{opacity:.5}
+.e-t{font-size:14px;font-weight:600;color:var(--sub)}
+.e-s{font-size:11.5px}
+
+.rcard{position:relative;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);
+  border-radius:12px;padding:10px 14px 12px;margin-bottom:8px;overflow:hidden;animation:cardin .26s var(--ease)}
+.rcard:hover{background:var(--card2);border-color:var(--line2)}
+@keyframes cardin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.ftile{width:42px;height:42px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;
+  font:700 9px/1 var(--sans);color:#fff;letter-spacing:.6px;text-shadow:0 1px 2px rgba(0,0,0,.25)}
+.finfo{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.nrow{display:flex;align-items:center;gap:8px;min-width:0}
+.fname{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbadge{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;
+  padding:2px 8px;border-radius:999px}
+.vbadge.ok{color:var(--green);background:rgba(48,209,88,.13);border:1px solid rgba(48,209,88,.35)}
+.vbadge.bad{color:var(--red);background:rgba(255,69,58,.13);border:1px solid rgba(255,69,58,.35)}
+.meta{font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow{display:flex;align-items:center;gap:8px;margin-top:3px;min-width:0}
+.mlabel{flex:none;font-size:9px;font-weight:700;color:var(--dim);border:1px solid var(--line2);border-radius:4px;padding:1.5px 5px;letter-spacing:.6px}
+.mval{font-family:var(--mono);font-size:12.5px;color:#dcdce1;letter-spacing:.2px;user-select:text}
+.icopy{flex:none;border:none;background:transparent;color:var(--dim);cursor:pointer;padding:3px;border-radius:6px;display:flex}
+.icopy:hover{color:var(--accent);background:rgba(10,132,255,.12)}
+.fstate{flex:none;min-width:78px;text-align:right;font:500 11px var(--mono);color:var(--sub)}
+.spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.15);border-top-color:var(--accent);border-radius:50%;
+  display:inline-block;animation:spin .7s linear infinite;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.st-err{color:var(--red)}
+.st-q{color:var(--dim);font-family:var(--sans)}
+.pbar{position:absolute;left:0;bottom:0;height:2px;width:0;background:linear-gradient(90deg,var(--accent),#64d2ff);
+  transition:width .15s linear}
+.rcard.err{border-color:rgba(255,69,58,.4)}
+.rcard.done{animation:none}
+
+/* ---------- 底栏 ---------- */
+#bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
+#status{display:flex;align-items:center;gap:7px;flex:1;min-width:0;font-size:12px;color:var(--sub)}
+#bdot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;opacity:0}
+#bdot.on{opacity:1;animation:pulse 1.15s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+#stext{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-flex;align-items:center;gap:6px;flex:none;font:500 11px var(--sans);color:var(--sub);
+  background:rgba(255,255,255,.05);border:1px solid var(--line);padding:5px 11px;border-radius:999px;cursor:pointer;transition:.12s}
+.chip:hover{background:rgba(255,255,255,.1);color:var(--text)}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex:none}
+.chip.err .dot{background:var(--red)}
+.gbar{flex:none;width:150px;height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.gbar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--accent),#64d2ff);
+  transition:width .18s linear,opacity .6s}
+.btns{display:flex;gap:8px;flex:none}
+
+/* ---------- 其他 ---------- */
+#dragOverlay{position:fixed;inset:10px;border:2px dashed var(--accent);border-radius:18px;background:rgba(10,132,255,.09);
+  display:none;z-index:60;pointer-events:none}
+body.dragging #dragOverlay{display:block}
+#toast{position:fixed;left:50%;bottom:64px;transform:translateX(-50%) translateY(14px);background:#2f2f35;border:1px solid var(--line2);
+  color:var(--text);font-size:12px;padding:9px 16px;border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;transition:.22s var(--ease);z-index:70;max-width:70%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="dragOverlay"></div>
+
+<header id="titlebar">
+  <div class="lights">
+    <button class="lt close" id="wClose" title="关闭"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+    <button class="lt min" id="wMin" title="最小化"><svg viewBox="0 0 10 10"><path d="M1.5 5h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+    <button class="lt max" id="wMax" title="最大化"><svg viewBox="0 0 10 10"><path d="M1.5 5h7M5 1.5v7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></button>
+  </div>
+  <div class="tb-drag pywebview-drag-region">
+    <div class="tb-title"><span class="tname">MD5 校验工具</span><span class="ver" id="ver">Pro V2.0</span></div>
+  </div>
+  <div class="tb-right"></div>
+</header>
+
+<main>
+  <section id="topRow">
+    <div id="dropzone" class="card">
+      <div class="dz-left">
+        <div class="iconring">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9.5 14.5 12 17l2.5-2.5"/>
+          </svg>
+        </div>
+        <div class="dz-txt">
+          <div class="dz-title">拖入文件或文件夹，自动计算 MD5</div>
+          <div class="dz-sub">支持多文件批量 · 文件夹自动递归 · 完成后自动写入 Excel</div>
+        </div>
+      </div>
+      <div class="dz-actions">
+        <button class="btn primary" id="btnPick">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>
+          选择文件
+        </button>
+        <button class="btn" id="btnFolder">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          选择文件夹
+        </button>
+      </div>
+    </div>
+
+    <div id="verify" class="card">
+      <div class="v-head">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-3 8.4-7 10-4-1.6-7-5.6-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span>校验比对</span>
+      </div>
+      <input id="expect" class="field" placeholder="粘贴已知 MD5，自动比对结果" spellcheck="false" autocomplete="off">
+      <div class="v-hint" id="vhint">输入或粘贴 32 位 MD5，与下方结果自动比对</div>
+    </div>
+  </section>
+
+  <section id="list">
+    <div id="empty">
+      <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" opacity=".9"/><path d="M14 3v5h5"/><path d="M9 13h6M9 16h4"/></svg>
+      <div class="e-t">拖入文件开始校验</div>
+      <div class="e-s">或点击上方「选择文件」 · 每算完一个文件自动写入 Excel 记录</div>
+    </div>
+    <div id="cards"></div>
+  </section>
+
+  <footer id="bar">
+    <div id="status"><span id="bdot"></span><span id="stext">就绪</span></div>
+    <button class="chip" id="excelchip" title="打开 Excel 记录"><span class="dot" id="xdot"></span><span id="xlabel">Excel 记录</span></button>
+    <div class="gbar"><i id="gfill"></i></div>
+    <div class="btns">
+      <button class="btn danger" id="btnStop" disabled>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>停止
+      </button>
+      <button class="btn" id="btnClear" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>清空
+      </button>
+      <button class="btn" id="btnCopy" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>复制
+      </button>
+      <button class="btn" id="btnTxt" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>导出TXT
+      </button>
+    </div>
+  </footer>
+</main>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+window.__jserr = null;
+window.addEventListener('error', function (e) { window.__jserr = String(e.message || e); });
+const $ = s => document.querySelector(s);
+const cardsEl = $('#cards'), emptyEl = $('#empty'), gfill = $('#gfill');
+const EXTC = {bin:'#ff9f0a',hex:'#ff9f0a',rom:'#ff9f0a',img:'#ff9f0a',
+  exe:'#0a84ff',dll:'#0a84ff',sys:'#0a84ff',msi:'#0a84ff',
+  zip:'#64d2ff',rar:'#64d2ff','7z':'#64d2ff',gz:'#64d2ff',
+  txt:'#98989d',md:'#98989d',log:'#98989d',ini:'#98989d',cfg:'#98989d',
+  png:'#ff375f',jpg:'#ff375f',jpeg:'#ff375f',gif:'#ff375f',bmp:'#ff375f',
+  pdf:'#ff453a',doc:'#409cff',docx:'#409cff',xls:'#30d158',xlsx:'#30d158',et:'#30d158'};
+let EXPECTED = '', BUSY = false, CURFRAC = 0, DONE = 0, TOTAL = 0, DONECNT = 0, dragDepth = 0;
+const state = new Map(); // id -> {name, md5, ...}
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function truncName(n){ return n.length > 46 ? n.slice(0, 28) + ' … ' + n.slice(-13) : n; }
+function extOf(n){ const m = /\.([a-z0-9]+)$/i.exec(n); return m ? m[1].toLowerCase() : ''; }
+function api(){ return window.pywebview ? window.pywebview.api : null; }
+function call(fn){ const a = api(); if(!a) return Promise.resolve(null); return fn(a).catch(e => { toast('操作失败：' + e); return null; }); }
+
+/* ---------- 卡片 ---------- */
+function addCard(ev){
+  const ex = extOf(ev.name);
+  const label = (ex || 'FILE').slice(0, 4).toUpperCase();
+  const el = document.createElement('div');
+  el.className = 'rcard'; el.id = 'c' + ev.id;
+  el.innerHTML =
+    '<div class="ftile" style="background:' + (EXTC[ex] || '#6e6e73') + '">' + label + '</div>' +
+    '<div class="finfo">' +
+      '<div class="nrow"><span class="fname" title="' + esc(ev.path) + '">' + esc(truncName(ev.name)) + '</span><span class="vbadge"></span></div>' +
+      '<div class="meta">排队中…</div>' +
+      '<div class="mrow"><span class="mlabel">MD5</span><span class="mval">—</span></div>' +
+    '</div>' +
+    '<div class="fstate"><span class="st-q">等待</span></div>' +
+    '<div class="pbar"></div>';
+  cardsEl.appendChild(el);
+  emptyEl.style.display = 'none';
+  state.set(ev.id, {name: ev.name, path: ev.path, el: el, status: 'queued'});
+  $('#btnClear').disabled = false;
+  $('#list').scrollTop = $('#list').scrollHeight;
+}
+function q(id){ const s = state.get(id); return s ? s.el : null; }
+
+function setProgress(id, frac){
+  const el = q(id); if(!el) return;
+  el.querySelector('.pbar').style.width = (frac * 100).toFixed(1) + '%';
+  const fs = el.querySelector('.fstate');
+  fs.innerHTML = '<span class="spin"></span>';
+  fs.style.color = 'var(--sub)';
+  const meta = el.querySelector('.meta');
+  if(meta.dataset.base) meta.textContent = meta.dataset.base + ' · 计算中 ' + Math.round(frac * 100) + '%';
+}
+function setHashing(id){
+  const el = q(id); if(!el) return;
+  const s = state.get(id); s.status = 'hashing';
+  const meta = el.querySelector('.meta');
+  if(!meta.dataset.base) meta.textContent = '正在读取文件…';
+  meta.dataset.base = meta.textContent.replace(/ · 计算中.*/, '');
+  const fs = el.querySelector('.fstate'); fs.innerHTML = '<span class="spin"></span>';
+}
+function finishCard(ev){
+  const el = q(ev.id); if(!el) return;
+  const s = state.get(ev.id); s.status = 'done';
+  Object.assign(s, {md5: ev.md5, size: ev.size, size_h: ev.size_h, ctime: ev.ctime, mtime: ev.mtime, elapsed: ev.elapsed});
+  el.classList.add('done');
+  const meta = el.querySelector('.meta');
+  meta.textContent = ev.size_h + ' · 修改 ' + ev.mtime;
+  meta.dataset.base = meta.textContent;
+  el.querySelector('.mval').textContent = ev.md5;
+  el.querySelector('.mval').style.userSelect = 'text';
+  const fs = el.querySelector('.fstate');
+  fs.textContent = ev.elapsed.toFixed(3) + ' s'; fs.style.color = 'var(--dim)';
+  const pb = el.querySelector('.pbar'); pb.style.width = '100%';
+  setTimeout(() => { pb.style.opacity = '0'; }, 650);
+  if(ev.error){
+    el.classList.add('err');
+    el.querySelector('.mval').textContent = '读取失败：' + ev.error;
+    el.querySelector('.mval').style.color = 'var(--red)';
+    fs.textContent = '失败'; fs.className = 'fstate st-err';
+  }else{
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'icopy'; copyBtn.title = '复制 MD5';
+    copyBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+    copyBtn.onclick = () => call(a => a.copy_md5(s.md5)).then(ok => { if(ok) toast('MD5 已复制'); });
+    el.querySelector('.mrow').appendChild(copyBtn);
+    DONECNT++;
+    $('#btnCopy').disabled = false; $('#btnTxt').disabled = false;
+    applyVerify(ev.id);
+  }
+  if(ev.excel) setExcelChip(ev.excel);
+}
+function markStopped(id){
+  const el = q(id); if(!el) return;
+  const s = state.get(id); if(s.status === 'done') return;
+  s.status = 'stopped';
+  const fs = el.querySelector('.fstate');
+  fs.textContent = '已停止'; fs.style.color = 'var(--dim)';
+  el.querySelector('.pbar').style.width = '0';
+  const meta = el.querySelector('.meta');
+  if(!meta.dataset.base) meta.textContent = '已停止';
+}
+function clearUI(){
+  cardsEl.innerHTML = ''; state.clear();
+  DONECNT = 0; CURFRAC = 0;
+  emptyEl.style.display = '';
+  $('#btnClear').disabled = true; $('#btnCopy').disabled = true; $('#btnTxt').disabled = true;
+  gfill.style.width = '0';
+  applyHint();
+}
+
+/* ---------- 校验比对 ---------- */
+const SVG_OK = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>';
+const SVG_BAD = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+function applyVerify(id){
+  const s = state.get(id); if(!s || s.status !== 'done' || s.error) return;
+  const el = s.el, badge = el.querySelector('.vbadge');
+  if(!EXPECTED){ badge.className = 'vbadge'; badge.innerHTML = ''; return; }
+  const ok = (s.md5 || '').toLowerCase() === EXPECTED;
+  badge.className = 'vbadge ' + (ok ? 'ok' : 'bad');
+  badge.innerHTML = (ok ? SVG_OK : SVG_BAD) + (ok ? '一致' : '不一致');
+}
+function applyVerifyAll(){ for(const id of state.keys()) applyVerify(id); }
+function applyHint(){
+  const h = $('#vhint');
+  if(!EXPECTED){ h.textContent = '输入或粘贴 32 位 MD5，与下方结果自动比对'; return; }
+  if(EXPECTED.length < 32){ h.textContent = '已输入 ' + EXPECTED.length + ' 位，还差 ' + (32 - EXPECTED.length) + ' 位'; return; }
+  let ok = 0, bad = 0;
+  for(const s of state.values()){
+    if(s.status !== 'done' || s.error) continue;
+    (s.md5 || '').toLowerCase() === EXPECTED ? ok++ : bad++;
+  }
+  h.innerHTML = (ok ? '<b class="ok">' + ok + ' 个一致</b>' : '') + (ok && bad ? ' · ' : '') + (bad ? '<b class="bad">' + bad + ' 个不一致</b>' : '') + (!ok && !bad ? '等待计算结果…' : '');
+}
+$('#expect').addEventListener('input', e => {
+  EXPECTED = e.target.value.trim().toLowerCase();
+  call(a => a.set_expected(EXPECTED));
+  applyVerifyAll(); applyHint();
+});
+
+/* ---------- 底栏与状态 ---------- */
+function setStatus(ev){
+  BUSY = ev.busy; DONE = ev.done; TOTAL = ev.total;
+  $('#bdot').className = BUSY ? 'on' : '';
+  $('#stext').textContent = ev.text || (BUSY ? '正在校验…' : '就绪');
+  $('#btnStop').disabled = !BUSY;
+  $('#btnClear').disabled = !(TOTAL > DONE || BUSY || cardsEl.children.length);
+  updateBar();
+}
+function updateBar(){
+  if(!TOTAL){ gfill.style.width = '0'; return; }
+  gfill.style.opacity = '1';
+  gfill.style.width = Math.min(100, (DONE + (BUSY ? CURFRAC : 0)) / TOTAL * 100).toFixed(1) + '%';
+  if(!BUSY && DONE >= TOTAL && TOTAL > 0) setTimeout(() => { gfill.style.opacity = '0'; }, 1200);
+}
+function setExcelChip(ex){
+  const chip = $('#excelchip');
+  chip.classList.toggle('err', !ex.ok);
+  $('#xlabel').textContent = ex.ok ? (ex.name + ' · ' + (ex.count || 0) + ' 条') : 'Excel 未启用';
+  chip.title = ex.ok ? ('点击打开记录表：' + (ex.path || '')) : (ex.err || '');
+}
+
+/* ---------- 事件分发 ---------- */
+window.__onEvent = function(ev){
+  switch(ev.type){
+    case 'queued':   addCard(ev); break;
+    case 'hashing':  setHashing(ev.id); currentId = ev.id; break;
+    case 'progress': setProgress(ev.id, ev.frac); CURFRAC = ev.frac; updateBar(); break;
+    case 'done':     finishCard(ev); applyHint(); break;
+    case 'stopped':  markStopped(ev.id); break;
+    case 'cleared':  clearUI(); break;
+    case 'status':   setStatus(ev); break;
+  }
+};
+let currentId = null;
+
+/* ---------- 拖拽 ---------- */
+function overlay(on){ document.body.classList.toggle('dragging', on); }
+document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; overlay(true); });
+document.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if(!dragDepth) overlay(false); });
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; overlay(false); });
+window.addEventListener('pywebview-drag-drop', e => {
+  dragDepth = 0; overlay(false);
+  const d = e.detail || e.data;
+  const arr = Array.isArray(d) ? d : (d ? [d] : []);
+  const paths = arr.filter(x => typeof x === 'string' && x);
+  if(paths.length) addPaths(paths);
+});
+function addPaths(arr){
+  call(a => a.add_paths(arr)).then(r => {
+    if(!r) return;
+    if(r.skipped) toast('已加入 ' + r.added + ' 个文件，跳过重复 ' + r.skipped + ' 个');
+    else toast('已加入 ' + r.added + ' 个文件');
+  });
+}
+
+/* ---------- 按钮 ---------- */
+$('#btnPick').onclick   = () => call(a => a.pick_files());
+$('#btnFolder').onclick = () => call(a => a.pick_folder());
+$('#btnStop').onclick   = () => call(a => a.stop());
+$('#btnClear').onclick  = () => call(a => a.clear_all());
+$('#btnCopy').onclick   = () => call(a => a.copy_all()).then(ok => { if(ok) toast('已复制全部结果'); });
+$('#btnTxt').onclick    = () => call(a => a.export_txt()).then(p => { if(p) toast('已导出：' + p); });
+$('#excelchip').onclick = () => call(a => a.open_excel());
+$('#wClose').onclick = () => call(a => a.close_window());
+$('#wMin').onclick   = () => call(a => a.minimize_window());
+$('#wMax').onclick   = () => call(a => a.toggle_max());
+$('#dropzone').onclick = e => { if(!e.target.closest('button')) call(a => a.pick_files()); };
+
+let toastTimer = null;
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+/* ---------- 初始化 ---------- */
+window.addEventListener('pywebviewready', () => {
+  call(a => a.ui_ready());
+  call(a => a.get_init()).then(init => {
+    if(!init) return;
+    $('#ver').textContent = 'Pro V' + init.version;
+    setExcelChip(init.excel);
+  });
+});
+</script>
+</body>
+</html>
