@@ -385,8 +385,9 @@ function updateBar(){
 }
 function setExcelChip(ex){
   const chip = $('#excelchip');
-  chip.classList.toggle('err', !ex.ok);
-  $('#xlabel').textContent = ex.ok ? (ex.name + ' · ' + (ex.count || 0) + ' 条') : 'Excel 未启用';
+  chip.classList.toggle('err', !ex.loading && !ex.ok);
+  $('#xlabel').textContent = ex.loading ? 'Excel 记录加载中…'
+    : (ex.ok ? (ex.name + ' · ' + (ex.count || 0) + ' 条') : 'Excel 未启用');
   chip.title = ex.ok ? ('点击打开记录表：' + (ex.path || '')) : (ex.err || '');
 }
 
@@ -400,6 +401,7 @@ window.__onEvent = function(ev){
     case 'stopped':  markStopped(ev.id); break;
     case 'cleared':  clearUI(); break;
     case 'status':   setStatus(ev); break;
+    case 'excel':    setExcelChip(ev); break;
   }
 };
 let currentId = null;

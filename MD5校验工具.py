@@ -6,8 +6,15 @@
 - 每算完一个文件，自动把「文件名 + MD5」等追加写入同目录的 MD5校验记录.xlsx
 - 可复制全部结果 / 导出 TXT 报告
 
-运行环境：Python 3.10+（tkinter 不需要），依赖 pywebview、openpyxl
+源码运行：Python 3.10+，依赖 pywebview、openpyxl
     pip install pywebview openpyxl
+    python MD5校验工具.py
+打包发布（单文件 exe，免 Python 环境）：
+    pip install pyinstaller
+    pyinstaller --onefile --noconsole --icon app.ico --name "MD5校验工具" ^
+        --add-data "ui.html;." --add-data "app.ico;." ^
+        --collect-all webview --collect-all pythonnet --collect-all clr_loader ^
+        --splash icon.png MD5校验工具.py
 """
 import os
 import sys
@@ -19,11 +26,47 @@ import threading
 import ctypes
 import datetime
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包运行：资源在解包目录 _MEIPASS，记录表/日志放在 exe 旁边
+    APP_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    BUNDLE_DIR = getattr(sys, '_MEIPASS', APP_DIR)
+else:
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    BUNDLE_DIR = APP_DIR
 
 
-def _fatal(msg):
-    """无控制台（pythonw）时的兑底：写日志 + 弹窗，绝不静默退出"""
+WEBVIEW2_REG_KEY = r'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+
+
+def _find_webview2_runtime():
+    """从注册表查 WebView2 运行时版本，找不到返回 None（Evergreen 常青版/固定版都会写这里）"""
+    try:
+        import winreg
+    except Exception:
+        return 'ok'
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for view in (winreg.KEY_WOW64_32KEY, winreg.KEY_WOW64_64KEY, 0):
+            try:
+                k = winreg.OpenKey(root, WEBVIEW2_REG_KEY, 0, winreg.KEY_READ | view)
+            except OSError:
+                continue
+            try:
+                pv = winreg.QueryValueEx(k, 'pv')[0]
+                if pv and pv != '0.0.0.0':
+                    return pv
+            except OSError:
+                pass
+            finally:
+                try:
+                    k.Close()
+                except Exception:
+                    pass
+    return None
+
+
+def _fatal(msg, hard=False):
+    """无控制台（pythonw/exe）时的兜底：写日志 + 弹窗，绝不静默退出。
+    hard=True 用 os._exit（供非主线程调用，sys.exit 在子线程杀不掉进程）"""
     try:
         with open(os.path.join(APP_DIR, '启动错误.log'), 'w', encoding='utf-8') as f:
             f.write(msg)
@@ -33,6 +76,8 @@ def _fatal(msg):
         ctypes.windll.user32.MessageBoxW(0, msg, 'MD5 校验工具', 0x10)
     except Exception:
         pass
+    if hard:
+        os._exit(1)
     sys.exit(1)
 
 
@@ -40,7 +85,7 @@ try:
     import webview
 except Exception:
     import traceback
-    _fatal('启动失败：缺少依赖 pywebview。\n\n请执行：\n  D:\\python\\python.exe -m pip install pywebview openpyxl\n\n详情：\n' + traceback.format_exc())
+    _fatal('启动失败：缺少依赖 pywebview。\n\n请执行：\n  python -m pip install pywebview openpyxl\n\n详情：\n' + traceback.format_exc())
 
 
 def _enable_dpi_awareness():
@@ -55,18 +100,10 @@ def _enable_dpi_awareness():
 
 _enable_dpi_awareness()
 
-UI_PATH = os.path.join(APP_DIR, 'ui.html')
-ICON_PATH = os.path.join(APP_DIR, 'app.ico')
+UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
+ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.0'
-
-try:
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill, Alignment
-    from openpyxl.utils import get_column_letter
-    EXCEL_OK = True
-except Exception:
-    EXCEL_OK = False
+APP_VERSION = '2.1'
 
 
 def human_size(n):
@@ -160,7 +197,8 @@ def hash_file(path, on_progress, abort):
 
 
 class ExcelLog:
-    """固定总表：MD5校验记录.xlsx，每完成一个文件追加一行"""
+    """固定总表：MD5校验记录.xlsx，每完成一个文件追加一行。
+    openpyxl 的导入与记录表加载延迟到首次使用，不拖慢首屏。"""
     HEAD = ['记录时间', '文件名', 'MD5', '大小（字节）', '大小（可读）',
             '创建时间', '修改时间', '耗时（秒）', '校验结果', '文件路径']
     WIDTH = [19, 42, 38, 13, 11, 20, 20, 10, 10, 55]
@@ -170,46 +208,74 @@ class ExcelLog:
         self.path = os.path.join(APP_DIR, 'MD5校验记录.xlsx')
         self.count = 0
         self.err = None
-        self.available = EXCEL_OK
-        self._wb = None
-        self._ws = None
-        if EXCEL_OK:
-            self._load()
+        self.available = False
+        self._tried = False
 
-    def _new(self):
-        self._wb = openpyxl.Workbook()
-        self._ws = self._wb.active
-        self._ws.title = 'MD5记录'
-        self._ws.append(self.HEAD)
-        for i, w in enumerate(self.WIDTH, 1):
-            self._ws.column_dimensions[get_column_letter(i)].width = w
-        for c in self._ws[1]:
-            c.font = Font(bold=True, color='FFFFFF', size=10, name='微软雅黑')
-            c.fill = PatternFill('solid', fgColor='0A84FF')
-            c.alignment = Alignment(horizontal='center', vertical='center')
-        self._ws.row_dimensions[1].height = 22
-        self._ws.freeze_panes = 'A2'
-        self.count = 0
+    def status(self):
+        return {'ok': self.available, 'loading': not self._tried,
+                'name': os.path.basename(self.path),
+                'count': self.count if self.available else 0,
+                'err': self.err, 'path': self.path}
 
-    def _load(self):
+    def ensure_loaded(self):
+        with self.lock:
+            if not self._tried:
+                self._tried = True
+                self._init_engine()
+            return self.status()
+
+    def _init_engine(self):
+        """持有 self.lock 调用：导入 openpyxl 并加载（或新建）记录表"""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.utils import get_column_letter
+            self._oxl = openpyxl
+            self._Font, self._PatternFill, self._Alignment = Font, PatternFill, Alignment
+            self._gcl = get_column_letter
+        except Exception as e:
+            self.available = False
+            self.err = '未安装 openpyxl：%s' % e
+            return
         if os.path.exists(self.path):
             try:
                 self._wb = openpyxl.load_workbook(self.path)
                 self._ws = self._wb.active
                 self.count = max(self._ws.max_row - 1, 0)
+                self.available = True
                 return
             except Exception as e:
                 self.err = '无法读取记录表：%s' % e
         self._new()
+        self.available = True
+
+    def _new(self):
+        """持有 self.lock 调用"""
+        self._wb = self._oxl.Workbook()
+        self._ws = self._wb.active
+        self._ws.title = 'MD5记录'
+        self._ws.append(self.HEAD)
+        for i, w in enumerate(self.WIDTH, 1):
+            self._ws.column_dimensions[self._gcl(i)].width = w
+        for c in self._ws[1]:
+            c.font = self._Font(bold=True, color='FFFFFF', size=10, name='微软雅黑')
+            c.fill = self._PatternFill('solid', fgColor='0A84FF')
+            c.alignment = self._Alignment(horizontal='center', vertical='center')
+        self._ws.row_dimensions[1].height = 22
+        self._ws.freeze_panes = 'A2'
+        self.count = 0
 
     def append(self, row):
         with self.lock:
+            if not self._tried:
+                self._tried = True
+                self._init_engine()
             if not self.available:
                 return {'ok': False, 'err': self.err or '未安装 openpyxl'}
             try:
                 self._ws.append(row)
                 self._ws.auto_filter.ref = 'A1:%s%d' % (
-                    get_column_letter(len(self.HEAD)), self._ws.max_row)
+                    self._gcl(len(self.HEAD)), self._ws.max_row)
                 self._wb.save(self.path)
                 self.count += 1
                 self.err = None
@@ -322,11 +388,25 @@ class Api:
             print('DROP-REG-FAIL', repr(e), flush=True)
 
     def get_init(self):
-        return {'version': APP_VERSION,
-                'excel': {'ok': self.excel.available,
-                          'name': os.path.basename(self.excel.path),
-                          'count': self.excel.count if self.excel.available else 0,
-                          'err': self.excel.err, 'path': self.excel.path}}
+        return {'version': APP_VERSION, 'excel': self.excel.status()}
+
+    def _load_excel_async(self):
+        """后台线程加载 Excel 组件与记录表，完成后推送给界面刷新底栏"""
+        def job():
+            st = self.excel.ensure_loaded()
+            self._emit({'type': 'excel', **st})
+        threading.Thread(target=job, daemon=True).start()
+
+    def _watchdog(self, sec=20):
+        """页面迟迟没就绪（WebView2 缺失/过旧回退到坏引擎）时给出明确提示"""
+        def job():
+            time.sleep(sec)
+            if not self._ready:
+                _fatal('界面加载超时：WebView2 运行时缺失、过旧或不可用。\n\n'
+                       '请到下面地址安装最新「Evergreen 常青版」后重试：\n'
+                       'https://developer.microsoft.com/microsoft-edge/webview2/',
+                       hard=True)
+        threading.Thread(target=job, daemon=True).start()
 
     def set_expected(self, md5):
         v = (md5 or '').strip().lower()
@@ -580,16 +660,45 @@ def _demo_paths():
     return None
 
 
+def _autoquit_seconds():
+    """--autoquit N：N 秒后自动退出（自动化测试用）"""
+    if '--autoquit' in sys.argv:
+        i = sys.argv.index('--autoquit')
+        try:
+            return float(sys.argv[i + 1])
+        except (IndexError, ValueError):
+            return None
+    return None
+
+
 def main():
+    pv = _find_webview2_runtime()
+    if pv is None:
+        _fatal('未检测到 WebView2 运行时（本工具的界面依赖它）。\n\n'
+               'Win10/11 一般自带；如缺失请到下面地址安装「Evergreen 常青版」：\n'
+               'https://developer.microsoft.com/microsoft-edge/webview2/')
+
     api = Api()
     with open(UI_PATH, 'r', encoding='utf-8') as f:
         ui_html = f.read()
     win = webview.create_window(APP_TITLE, html=ui_html, js_api=api,
                                 width=980, height=680, frameless=True,
-                                background_color='#141416')
+                                background_color='#141416', hidden=True)
     api.attach(win)
 
     def on_loaded():
+        # 关闭 PyInstaller 启动画面（如有），窗口就绪后才显示，避免黑屏等待
+        if getattr(sys, 'frozen', False):
+            try:
+                import pyi_splash
+                pyi_splash.close()
+            except Exception:
+                pass
+        try:
+            win.show()
+        except Exception:
+            pass
+
         def later():
             time.sleep(0.4)
             try:
@@ -620,7 +729,14 @@ def main():
 
     def bootstrap():
         threading.Thread(target=api.worker_loop, daemon=True).start()
+        api._load_excel_async()
+        api._watchdog(20)
         api._demo = _demo_paths()
+        autoquit = _autoquit_seconds()
+        if autoquit:
+            t = threading.Timer(autoquit, api.close_window)
+            t.daemon = True
+            t.start()
 
     webview.start(bootstrap)
 

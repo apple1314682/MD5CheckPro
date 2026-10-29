@@ -3,3 +3,8 @@ MD5校验记录*.xlsx
 启动错误.log
 __pycache__/
 *.pyc
+
+# PyInstaller 打包产物
+build/
+dist/
+*.spec
