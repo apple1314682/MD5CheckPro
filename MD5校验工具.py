@@ -81,11 +81,29 @@ def _fatal(msg, hard=False):
     sys.exit(1)
 
 
+_BENCH_T0 = time.perf_counter()
+
+
+def _bench(tag):
+    """--bench 启动打点：各阶段耗时（含绝对时间）写入 启动耗时.log，仅测试用"""
+    if '--bench' not in sys.argv:
+        return
+    try:
+        with open(os.path.join(APP_DIR, '启动耗时.log'), 'a', encoding='utf-8') as f:
+            f.write('%s | %6.0f ms | %s\n' % (
+                datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3],
+                (time.perf_counter() - _BENCH_T0) * 1000, tag))
+    except Exception:
+        pass
+
+
 try:
     import webview
 except Exception:
     import traceback
     _fatal('启动失败：缺少依赖 pywebview。\n\n请执行：\n  python -m pip install pywebview openpyxl\n\n详情：\n' + traceback.format_exc())
+
+_bench('imports-done')
 
 
 def _enable_dpi_awareness():
@@ -103,7 +121,7 @@ _enable_dpi_awareness()
 UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
 ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.2'
+APP_VERSION = '2.3'
 
 
 def human_size(n):
@@ -401,7 +419,7 @@ class Api:
     def __dir__(self):
         # 只把公开方法暴露给前端，避免 pywebview 递归扫描内部属性（.NET 对象会卡死）
         return ['get_init', 'set_expected', 'add_paths', 'stop', 'clear_all',
-                'delete_records', 'copy_md5', 'copy_all', 'export_txt', 'open_excel',
+                'delete_records', 'reorder', 'copy_md5', 'copy_all', 'export_txt', 'open_excel',
                 'pick_files', 'pick_folder', 'ui_ready',
                 'minimize_window', 'toggle_max', 'close_window']
 
@@ -636,6 +654,19 @@ class Api:
             self.add_paths(list(res))
         return True
 
+    def reorder(self, ids):
+        """按界面顺序重排已完成记录（复制 / 导出 TXT 顺序跟随列表）"""
+        try:
+            order = [int(x) for x in (ids or [])]
+        except (TypeError, ValueError):
+            return False
+        idset = set(order)
+        with self.lock:
+            byid = {r['id']: r for r in self.done}
+            self.done = ([byid[i] for i in order if i in byid] +
+                         [r for r in self.done if r['id'] not in idset])
+        return True
+
     # ---------- 窗口控制（macOS 红绿灯） ----------
     def minimize_window(self):
         try:
@@ -774,7 +805,34 @@ def _autoquit_seconds():
     return None
 
 
+def _ensure_single_instance():
+    """已有实例运行时，把旧窗口调到前台并退出（避免 WebView2 用户目录被占用）"""
+    try:
+        k32 = ctypes.windll.kernel32
+        k32.CreateMutexW(None, False, r'Local\MD5校验工具Pro单实例')
+        if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            u32 = ctypes.windll.user32
+            hwnd = u32.FindWindowW(None, APP_TITLE)
+            if hwnd:
+                u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                u32.SetForegroundWindow(hwnd)
+                u32.FlashWindow(hwnd, True)
+            if getattr(sys, 'frozen', False):
+                try:
+                    import pyi_splash
+                    pyi_splash.close()
+                except Exception:
+                    pass
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def main():
+    _bench('main-start')
+    if not _ensure_single_instance():
+        return
     pv = _find_webview2_runtime()
     if pv is None:
         _fatal('未检测到 WebView2 运行时（本工具的界面依赖它）。\n\n'
@@ -788,8 +846,10 @@ def main():
                                 width=980, height=680, frameless=True,
                                 background_color='#141416', hidden=True)
     api.attach(win)
+    _bench('window-created')
 
     def on_loaded():
+        _bench('page-loaded')
         # 关闭 PyInstaller 启动画面（如有），窗口就绪后才显示，避免黑屏等待
         if getattr(sys, 'frozen', False):
             try:
@@ -799,6 +859,7 @@ def main():
                 pass
         try:
             win.show()
+            _bench('window-shown')
         except Exception:
             pass
 
@@ -831,6 +892,7 @@ def main():
     win.events.loaded += on_loaded
 
     def bootstrap():
+        _bench('gui-start')
         threading.Thread(target=api.worker_loop, daemon=True).start()
         api._load_excel_async()
         api._watchdog(20)
@@ -841,7 +903,14 @@ def main():
             t.daemon = True
             t.start()
 
-    webview.start(bootstrap)
+    storage = None
+    try:
+        storage = os.path.join(os.environ.get('LOCALAPPDATA') or APP_DIR, 'MD5校验工具')
+        os.makedirs(storage, exist_ok=True)
+    except Exception:
+        storage = None
+    # 持久化 WebView2 用户目录：二次启动热启动更快；配合单实例互斥避免目录锁冲突
+    webview.start(bootstrap, private_mode=False, storage_path=storage)
 
 
 if __name__ == '__main__':

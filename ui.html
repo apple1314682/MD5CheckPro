@@ -123,6 +123,10 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .ck input:checked + i{background:var(--accent);border-color:var(--accent)}
 .ck input:checked + i::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .rcard.sel{border-color:rgba(10,132,255,.45);background:rgba(10,132,255,.06)}
+.rcard{cursor:grab}
+.rcard:active{cursor:grabbing}
+.rcard.dragging{opacity:.45;border-style:dashed;border-color:var(--accent)}
+.rcard .mval[draggable="false"]{cursor:text}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -264,14 +268,14 @@ function addCard(ev){
   const ex = extOf(ev.name);
   const label = (ex || 'FILE').slice(0, 4).toUpperCase();
   const el = document.createElement('div');
-  el.className = 'rcard'; el.id = 'c' + ev.id;
+  el.className = 'rcard'; el.id = 'c' + ev.id; el.dataset.id = ev.id; el.draggable = true;
   el.innerHTML =
     '<label class="ck" title="勾选后点「删除选中」，连同 Excel 记录一起删除"><input type="checkbox" data-id="' + ev.id + '"><i></i></label>' +
     '<div class="ftile" style="background:' + (EXTC[ex] || '#6e6e73') + '">' + label + '</div>' +
     '<div class="finfo">' +
       '<div class="nrow"><span class="fname" title="' + esc(ev.path) + '">' + esc(truncName(ev.name)) + '</span><span class="vbadge"></span></div>' +
       '<div class="meta">排队中…</div>' +
-      '<div class="mrow"><span class="mlabel">MD5</span><span class="mval">—</span></div>' +
+      '<div class="mrow"><span class="mlabel">MD5</span><span class="mval" draggable="false">—</span></div>' +
     '</div>' +
     '<div class="fstate"><span class="st-q">等待</span></div>' +
     '<div class="pbar"></div>';
@@ -445,7 +449,8 @@ let currentId = null;
 
 /* ---------- 拖拽 ---------- */
 function overlay(on){ document.body.classList.toggle('dragging', on); }
-document.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; overlay(true); });
+function isFileDrag(e){ const dt = e.dataTransfer; return !!dt && Array.prototype.includes.call(dt.types || [], 'Files'); }
+document.addEventListener('dragenter', e => { if(!isFileDrag(e)) return; e.preventDefault(); dragDepth++; overlay(true); });
 document.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if(!dragDepth) overlay(false); });
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; overlay(false); });
@@ -463,6 +468,41 @@ function addPaths(arr){
     else toast('已加入 ' + r.added + ' 个文件');
   });
 }
+
+/* ---------- 卡片拖拽排序 ---------- */
+let dragId = null;
+cardsEl.addEventListener('dragstart', e => {
+  const card = e.target.closest('.rcard'); if(!card) return;
+  if(e.target.closest('.mval') || e.target.closest('.icopy')) { e.preventDefault(); return; }
+  dragId = +card.dataset.id;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  try { e.dataTransfer.setData('text/plain', String(dragId)); } catch(_) {}
+});
+cardsEl.addEventListener('dragover', e => {
+  if(dragId === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const listRect = $('#list').getBoundingClientRect();
+  if(e.clientY < listRect.top + 44) $('#list').scrollTop -= 14;
+  else if(e.clientY > listRect.bottom - 44) $('#list').scrollTop += 14;
+  const card = e.target.closest('.rcard');
+  if(!card) return;
+  const dragging = state.get(dragId) ? state.get(dragId).el : null;
+  if(!dragging || card === dragging) return;
+  const rect = card.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height / 2;
+  if(before && card.previousElementSibling !== dragging) cardsEl.insertBefore(dragging, card);
+  else if(!before && card.nextElementSibling !== dragging) cardsEl.insertBefore(dragging, card.nextElementSibling);
+});
+cardsEl.addEventListener('drop', e => { if(dragId !== null) e.preventDefault(); });
+cardsEl.addEventListener('dragend', () => {
+  if(dragId === null) return;
+  const s = state.get(dragId); if(s) s.el.classList.remove('dragging');
+  const order = Array.prototype.map.call(cardsEl.querySelectorAll('.rcard'), el => +el.dataset.id);
+  dragId = null;
+  if(order.length) call(a => a.reorder(order));
+});
 
 /* ---------- 按钮 ---------- */
 $('#btnPick').onclick   = () => call(a => a.pick_files());
