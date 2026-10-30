@@ -121,7 +121,7 @@ _enable_dpi_awareness()
 UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
 ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.6'
+APP_VERSION = '2.6.1'
 
 
 def human_size(n):
@@ -842,9 +842,12 @@ def main():
     api = Api()
     with open(UI_PATH, 'r', encoding='utf-8') as f:
         ui_html = f.read()
+    # easy_drag=False：关闭 pywebview 默认的「任意位置按住拖动窗口」，
+    # 否则拖动文件卡片时整个窗口会跟着跑（窗口拖拽与卡片排序冲突）。标题栏拖动走区域判断，不受影响。
     win = webview.create_window(APP_TITLE, html=ui_html, js_api=api,
                                 width=980, height=680, frameless=True,
-                                background_color='#141416', hidden=True)
+                                background_color='#141416', hidden=True,
+                                easy_drag=False)
     api.attach(win)
     _bench('window-created')
 
