@@ -123,10 +123,11 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .ck input:checked + i{background:var(--accent);border-color:var(--accent)}
 .ck input:checked + i::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
 .rcard.sel{border-color:rgba(10,132,255,.45);background:rgba(10,132,255,.06)}
-.rcard{cursor:grab}
-.rcard:active{cursor:grabbing}
-.rcard.dragging{opacity:.45;border-style:dashed;border-color:var(--accent)}
-.rcard .mval[draggable="false"]{cursor:text}
+.arrows{flex:none;display:flex;flex-direction:column;gap:2px;opacity:0;transition:opacity .12s;margin-right:2px}
+.rcard:hover .arrows{opacity:1}
+.arrows button{width:20px;height:17px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--sub);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:.12s}
+.arrows button:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:rgba(10,132,255,.12)}
+.arrows button:disabled{opacity:.25;cursor:default}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -268,20 +269,25 @@ function addCard(ev){
   const ex = extOf(ev.name);
   const label = (ex || 'FILE').slice(0, 4).toUpperCase();
   const el = document.createElement('div');
-  el.className = 'rcard'; el.id = 'c' + ev.id; el.dataset.id = ev.id; el.draggable = true;
+  el.className = 'rcard'; el.id = 'c' + ev.id; el.dataset.id = ev.id;
   el.innerHTML =
     '<label class="ck" title="勾选后点「删除选中」，连同 Excel 记录一起删除"><input type="checkbox" data-id="' + ev.id + '"><i></i></label>' +
     '<div class="ftile" style="background:' + (EXTC[ex] || '#6e6e73') + '">' + label + '</div>' +
     '<div class="finfo">' +
       '<div class="nrow"><span class="fname" title="' + esc(ev.path) + '">' + esc(truncName(ev.name)) + '</span><span class="vbadge"></span></div>' +
       '<div class="meta">排队中…</div>' +
-      '<div class="mrow"><span class="mlabel">MD5</span><span class="mval" draggable="false">—</span></div>' +
+      '<div class="mrow"><span class="mlabel">MD5</span><span class="mval">—</span></div>' +
+    '</div>' +
+    '<div class="arrows">' +
+      '<button type="button" data-dir="-1" title="上移"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14.5l7-7 7 7"/></svg></button>' +
+      '<button type="button" data-dir="1" title="下移"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9.5l7 7 7-7"/></svg></button>' +
     '</div>' +
     '<div class="fstate"><span class="st-q">等待</span></div>' +
     '<div class="pbar"></div>';
   cardsEl.appendChild(el);
   emptyEl.style.display = 'none';
   state.set(ev.id, {name: ev.name, path: ev.path, el: el, status: 'queued', checked: false});
+  refreshArrows();
   $('#btnClear').disabled = false;
   $('#list').scrollTop = $('#list').scrollHeight;
 }
@@ -310,6 +316,7 @@ function removeCard(id){
     $('#btnCopy').disabled = true; $('#btnTxt').disabled = true;
   }
   updateDelBtn();
+  refreshArrows();
 }
 
 function setProgress(id, frac){
@@ -469,39 +476,34 @@ function addPaths(arr){
   });
 }
 
-/* ---------- 卡片拖拽排序 ---------- */
-let dragId = null;
-cardsEl.addEventListener('dragstart', e => {
-  const card = e.target.closest('.rcard'); if(!card) return;
-  if(e.target.closest('.mval') || e.target.closest('.icopy')) { e.preventDefault(); return; }
-  dragId = +card.dataset.id;
-  card.classList.add('dragging');
-  e.dataTransfer.effectAllowed = 'move';
-  try { e.dataTransfer.setData('text/plain', String(dragId)); } catch(_) {}
-});
-cardsEl.addEventListener('dragover', e => {
-  if(dragId === null) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  const listRect = $('#list').getBoundingClientRect();
-  if(e.clientY < listRect.top + 44) $('#list').scrollTop -= 14;
-  else if(e.clientY > listRect.bottom - 44) $('#list').scrollTop += 14;
-  const card = e.target.closest('.rcard');
-  if(!card) return;
-  const dragging = state.get(dragId) ? state.get(dragId).el : null;
-  if(!dragging || card === dragging) return;
-  const rect = card.getBoundingClientRect();
-  const before = (e.clientY - rect.top) < rect.height / 2;
-  if(before && card.previousElementSibling !== dragging) cardsEl.insertBefore(dragging, card);
-  else if(!before && card.nextElementSibling !== dragging) cardsEl.insertBefore(dragging, card.nextElementSibling);
-});
-cardsEl.addEventListener('drop', e => { if(dragId !== null) e.preventDefault(); });
-cardsEl.addEventListener('dragend', () => {
-  if(dragId === null) return;
-  const s = state.get(dragId); if(s) s.el.classList.remove('dragging');
+/* ---------- 卡片上下移动 ---------- */
+function moveCard(id, dir){
+  const s = state.get(id); if(!s) return;
+  const el = s.el;
+  if(dir < 0 && !el.previousElementSibling) return;
+  if(dir > 0 && !el.nextElementSibling) return;
+  cardsEl.insertBefore(el, dir < 0 ? el.previousElementSibling : el.nextElementSibling.nextElementSibling);
+  sendOrder();
+}
+function sendOrder(){
+  refreshArrows();
   const order = Array.prototype.map.call(cardsEl.querySelectorAll('.rcard'), el => +el.dataset.id);
-  dragId = null;
   if(order.length) call(a => a.reorder(order));
+}
+function refreshArrows(){
+  const cards = cardsEl.querySelectorAll('.rcard');
+  const last = cards.length - 1;
+  cards.forEach((el, i) => {
+    const up = el.querySelector('.arrows button[data-dir="-1"]');
+    const down = el.querySelector('.arrows button[data-dir="1"]');
+    if(up) up.disabled = i === 0;
+    if(down) down.disabled = i === last;
+  });
+}
+cardsEl.addEventListener('click', e => {
+  const b = e.target.closest('.arrows button'); if(!b) return;
+  const card = b.closest('.rcard'); if(!card) return;
+  moveCard(+card.dataset.id, +b.dataset.dir);
 });
 
 /* ---------- 按钮 ---------- */
