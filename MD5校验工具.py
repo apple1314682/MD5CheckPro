@@ -121,7 +121,7 @@ _enable_dpi_awareness()
 UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
 ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.4'
+APP_VERSION = '2.5'
 
 
 def human_size(n):

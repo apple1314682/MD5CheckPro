@@ -128,6 +128,10 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .arrows button{width:20px;height:17px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--sub);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:.12s}
 .arrows button:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:rgba(10,132,255,.12)}
 .arrows button:disabled{opacity:.25;cursor:default}
+.grip{flex:none;align-self:stretch;width:14px;display:flex;align-items:center;justify-content:center;cursor:grab;color:var(--dim);opacity:.55;border-radius:6px;transition:opacity .12s,color .12s,background .12s}
+.grip:hover{color:var(--accent);opacity:1;background:rgba(10,132,255,.1)}
+.grip:active{cursor:grabbing}
+.rcard.dragging{opacity:.5;border-style:dashed;border-color:var(--accent)}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -271,6 +275,7 @@ function addCard(ev){
   const el = document.createElement('div');
   el.className = 'rcard'; el.id = 'c' + ev.id; el.dataset.id = ev.id;
   el.innerHTML =
+    '<span class="grip" draggable="true" title="按住拖动调整顺序"><svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor"><circle cx="2" cy="2" r="1.3"/><circle cx="6" cy="2" r="1.3"/><circle cx="2" cy="7" r="1.3"/><circle cx="6" cy="7" r="1.3"/><circle cx="2" cy="12" r="1.3"/><circle cx="6" cy="12" r="1.3"/></svg></span>' +
     '<label class="ck" title="勾选后点「删除选中」，连同 Excel 记录一起删除"><input type="checkbox" data-id="' + ev.id + '"><i></i></label>' +
     '<div class="ftile" style="background:' + (EXTC[ex] || '#6e6e73') + '">' + label + '</div>' +
     '<div class="finfo">' +
@@ -476,7 +481,43 @@ function addPaths(arr){
   });
 }
 
-/* ---------- 卡片上下移动 ---------- */
+/* ---------- 卡片排序：手柄拖拽 + ▲▼ 微调 ---------- */
+let dragId = null;
+cardsEl.addEventListener('dragstart', e => {
+  const grip = e.target.closest('.grip');
+  if(!grip) { e.preventDefault(); return; }
+  const card = grip.closest('.rcard');
+  dragId = +card.dataset.id;
+  card.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  try {
+    e.dataTransfer.setData('text/plain', String(dragId));
+    e.dataTransfer.setDragImage(card, 30, 20);
+  } catch(_) {}
+});
+cardsEl.addEventListener('dragover', e => {
+  if(dragId === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const listRect = $('#list').getBoundingClientRect();
+  if(e.clientY < listRect.top + 44) $('#list').scrollTop -= 14;
+  else if(e.clientY > listRect.bottom - 44) $('#list').scrollTop += 14;
+  const card = e.target.closest('.rcard');
+  if(!card) return;
+  const dragging = state.get(dragId) ? state.get(dragId).el : null;
+  if(!dragging || card === dragging) return;
+  const rect = card.getBoundingClientRect();
+  const before = (e.clientY - rect.top) < rect.height / 2;
+  if(before && card.previousElementSibling !== dragging) cardsEl.insertBefore(dragging, card);
+  else if(!before && card.nextElementSibling !== dragging) cardsEl.insertBefore(dragging, card.nextElementSibling);
+});
+cardsEl.addEventListener('drop', e => { if(dragId !== null) e.preventDefault(); });
+cardsEl.addEventListener('dragend', () => {
+  if(dragId === null) return;
+  const s = state.get(dragId); if(s) s.el.classList.remove('dragging');
+  dragId = null;
+  sendOrder();
+});
 function moveCard(id, dir){
   const s = state.get(id); if(!s) return;
   const el = s.el;
@@ -498,6 +539,8 @@ function refreshArrows(){
     const down = el.querySelector('.arrows button[data-dir="1"]');
     if(up) up.disabled = i === 0;
     if(down) down.disabled = i === last;
+    const grip = el.querySelector('.grip');
+    if(grip) grip.style.display = cards.length > 1 ? '' : 'none';
   });
 }
 cardsEl.addEventListener('click', e => {
