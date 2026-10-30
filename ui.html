@@ -116,6 +116,13 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
   transition:width .15s linear}
 .rcard.err{border-color:rgba(255,69,58,.4)}
 .rcard.done{animation:none}
+.ck{flex:none;display:flex;align-items:center;cursor:pointer}
+.ck input{display:none}
+.ck i{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line2);display:block;position:relative;transition:border-color .12s,background .12s;background:rgba(255,255,255,.04)}
+.ck:hover i{border-color:var(--accent)}
+.ck input:checked + i{background:var(--accent);border-color:var(--accent)}
+.ck input:checked + i::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+.rcard.sel{border-color:rgba(10,132,255,.45);background:rgba(10,132,255,.06)}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -129,7 +136,7 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .chip:hover{background:rgba(255,255,255,.1);color:var(--text)}
 .chip .dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex:none}
 .chip.err .dot{background:var(--red)}
-.gbar{flex:none;width:150px;height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
+.gbar{flex:none;width:112px;height:5px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
 .gbar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--accent),#64d2ff);
   transition:width .18s linear,opacity .6s}
 .btns{display:flex;gap:8px;flex:none}
@@ -216,6 +223,9 @@ body.dragging #dragOverlay{display:block}
       <button class="btn" id="btnClear" disabled>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/></svg>清空
       </button>
+      <button class="btn danger" id="btnDel" disabled>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12h7"/></svg><span id="btnDelText">删除选中</span>
+      </button>
       <button class="btn" id="btnCopy" disabled>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>复制
       </button>
@@ -256,6 +266,7 @@ function addCard(ev){
   const el = document.createElement('div');
   el.className = 'rcard'; el.id = 'c' + ev.id;
   el.innerHTML =
+    '<label class="ck" title="勾选后点「删除选中」，连同 Excel 记录一起删除"><input type="checkbox" data-id="' + ev.id + '"><i></i></label>' +
     '<div class="ftile" style="background:' + (EXTC[ex] || '#6e6e73') + '">' + label + '</div>' +
     '<div class="finfo">' +
       '<div class="nrow"><span class="fname" title="' + esc(ev.path) + '">' + esc(truncName(ev.name)) + '</span><span class="vbadge"></span></div>' +
@@ -266,11 +277,36 @@ function addCard(ev){
     '<div class="pbar"></div>';
   cardsEl.appendChild(el);
   emptyEl.style.display = 'none';
-  state.set(ev.id, {name: ev.name, path: ev.path, el: el, status: 'queued'});
+  state.set(ev.id, {name: ev.name, path: ev.path, el: el, status: 'queued', checked: false});
   $('#btnClear').disabled = false;
   $('#list').scrollTop = $('#list').scrollHeight;
 }
 function q(id){ const s = state.get(id); return s ? s.el : null; }
+cardsEl.addEventListener('change', e => {
+  const cb = e.target.closest('input[type="checkbox"]');
+  if(!cb) return;
+  const s = state.get(+cb.dataset.id);
+  if(!s) return;
+  s.checked = cb.checked;
+  s.el.classList.toggle('sel', cb.checked);
+  updateDelBtn();
+});
+function countSel(){ let n = 0; for(const s of state.values()) if(s.checked) n++; return n; }
+function countDone(){ let n = 0; for(const s of state.values()) if(s.status === 'done' && !s.error) n++; return n; }
+function updateDelBtn(){
+  const n = countSel();
+  $('#btnDel').disabled = !n;
+  $('#btnDelText').textContent = n ? '删除选中（' + n + '）' : '删除选中';
+}
+function removeCard(id){
+  const s = state.get(id); if(!s) return;
+  s.el.remove(); state.delete(id);
+  if(!state.size){
+    emptyEl.style.display = '';
+    $('#btnCopy').disabled = true; $('#btnTxt').disabled = true;
+  }
+  updateDelBtn();
+}
 
 function setProgress(id, frac){
   const el = q(id); if(!el) return;
@@ -400,6 +436,7 @@ window.__onEvent = function(ev){
     case 'done':     finishCard(ev); applyHint(); break;
     case 'stopped':  markStopped(ev.id); break;
     case 'cleared':  clearUI(); break;
+    case 'removed':  removeCard(ev.id); break;
     case 'status':   setStatus(ev); break;
     case 'excel':    setExcelChip(ev); break;
   }
@@ -431,7 +468,18 @@ function addPaths(arr){
 $('#btnPick').onclick   = () => call(a => a.pick_files());
 $('#btnFolder').onclick = () => call(a => a.pick_folder());
 $('#btnStop').onclick   = () => call(a => a.stop());
-$('#btnClear').onclick  = () => call(a => a.clear_all());
+$('#btnClear').onclick  = () => call(a => a.clear_all()).then(() => toast('已清空列表，Excel 记录已全部清除'));
+$('#btnDel').onclick    = () => {
+  const ids = [];
+  for(const [id, s] of state.entries()) if(s.checked) ids.push(id);
+  if(!ids.length) return;
+  call(a => a.delete_records(ids)).then(r => {
+    if(!r) return;
+    toast(r.excel_deleted === r.removed
+      ? '已删除 ' + r.removed + ' 条记录（含 Excel 行）'
+      : '已移除 ' + r.removed + ' 条列表记录，Excel 删除 ' + r.excel_deleted + ' 条');
+  });
+};
 $('#btnCopy').onclick   = () => call(a => a.copy_all()).then(ok => { if(ok) toast('已复制全部结果'); });
 $('#btnTxt').onclick    = () => call(a => a.export_txt()).then(p => { if(p) toast('已导出：' + p); });
 $('#excelchip').onclick = () => call(a => a.open_excel());

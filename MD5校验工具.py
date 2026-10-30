@@ -103,7 +103,7 @@ _enable_dpi_awareness()
 UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
 ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.1'
+APP_VERSION = '2.2'
 
 
 def human_size(n):
@@ -210,6 +210,7 @@ class ExcelLog:
         self.err = None
         self.available = False
         self._tried = False
+        self.rows = {}          # 本会话写入的记录 id → 工作表行号
 
     def status(self):
         return {'ok': self.available, 'loading': not self._tried,
@@ -265,7 +266,7 @@ class ExcelLog:
         self._ws.freeze_panes = 'A2'
         self.count = 0
 
-    def append(self, row):
+    def append(self, row, rid=None):
         with self.lock:
             if not self._tried:
                 self._tried = True
@@ -277,7 +278,9 @@ class ExcelLog:
                 self._ws.auto_filter.ref = 'A1:%s%d' % (
                     self._gcl(len(self.HEAD)), self._ws.max_row)
                 self._wb.save(self.path)
-                self.count += 1
+                if rid is not None:
+                    self.rows[rid] = self._ws.max_row
+                self.count = max(self._ws.max_row - 1, 0)
                 self.err = None
                 return {'ok': True, 'count': self.count,
                         'name': os.path.basename(self.path), 'path': self.path}
@@ -290,6 +293,9 @@ class ExcelLog:
                     self._new()
                     self._ws.append(row)
                     self._wb.save(alt)
+                    self.rows = {}
+                    if rid is not None:
+                        self.rows[rid] = self._ws.max_row
                     self.count = 1
                     return {'ok': True, 'count': 1, 'name': os.path.basename(alt),
                             'path': alt, 'note': '原记录表被占用，已另存新表'}
@@ -299,6 +305,46 @@ class ExcelLog:
             except Exception as e:
                 self.err = str(e)
                 return {'ok': False, 'err': self.err}
+
+    def delete_row(self, rid):
+        """删除某条记录对应的工作表行；返回是否删除成功"""
+        with self.lock:
+            if not self.available or rid not in self.rows:
+                return False
+            r = self.rows.pop(rid)
+            try:
+                self._ws.delete_rows(r)
+                for k, v in list(self.rows.items()):
+                    if v > r:
+                        self.rows[k] = v - 1
+                self._wb.save(self.path)
+                self.count = max(self._ws.max_row - 1, 0)
+                self.err = None
+                return True
+            except Exception as e:
+                self.err = str(e)
+                return False
+
+    def clear_data(self):
+        """清空记录表全部数据行（保留表头，含历史记录）；返回删除的行数，失败返回 -1"""
+        with self.lock:
+            if not self._tried:
+                self._tried = True
+                self._init_engine()
+            if not self.available:
+                return -1
+            try:
+                removed = max(self._ws.max_row - 1, 0)
+                if removed:
+                    self._ws.delete_rows(2, removed)
+                    self._wb.save(self.path)
+                self.rows = {}
+                self.count = 0
+                self.err = None
+                return removed
+            except Exception as e:
+                self.err = str(e)
+                return -1
 
     def open(self):
         try:
@@ -329,6 +375,7 @@ class Api:
         self._ready = False     # 页面就绪前，事件先缓存
         self._pending = []
         self._demo = None
+        self.cancelled = set()  # 被删除但工作线程还没处理完的任务 id
 
     # ---------- 内部 ----------
     def attach(self, win):
@@ -354,7 +401,7 @@ class Api:
     def __dir__(self):
         # 只把公开方法暴露给前端，避免 pywebview 递归扫描内部属性（.NET 对象会卡死）
         return ['get_init', 'set_expected', 'add_paths', 'stop', 'clear_all',
-                'copy_md5', 'copy_all', 'export_txt', 'open_excel',
+                'delete_records', 'copy_md5', 'copy_all', 'export_txt', 'open_excel',
                 'pick_files', 'pick_folder', 'ui_ready',
                 'minimize_window', 'toggle_max', 'close_window']
 
@@ -460,7 +507,10 @@ class Api:
                 job = self.q.get_nowait()
             except queue.Empty:
                 break
-            self._emit({'type': 'stopped', 'id': job['id']})
+            if job['id'] in self.cancelled:
+                self._emit({'type': 'removed', 'id': job['id']})
+            else:
+                self._emit({'type': 'stopped', 'id': job['id']})
         self._status('已停止', False)
         return True
 
@@ -478,9 +528,48 @@ class Api:
             except queue.Empty:
                 break
         self.abort.clear()
+        self.cancelled.clear()
+        self.excel.clear_data()   # 清空列表同时清空 Excel 全部记录（含历史）
         self._emit({'type': 'cleared'})
+        self._emit({'type': 'excel', **self.excel.status()})
         self._status('就绪', False)
         return True
+
+    def delete_records(self, ids):
+        """删除选中的记录：移除列表卡片，并删除 Excel 中对应的行"""
+        if not isinstance(ids, (list, tuple)):
+            ids = [ids]
+        removed = excel_deleted = 0
+        emits = []
+        with self.lock:
+            for rid in ids:
+                try:
+                    rid = int(rid)
+                except (TypeError, ValueError):
+                    continue
+                rec = next((r for r in self.done if r['id'] == rid), None)
+                if rec is not None:
+                    if self.excel.delete_row(rid):
+                        excel_deleted += 1
+                    self.done.remove(rec)
+                    self.known.discard(os.path.normcase(rec['path']))
+                    if self.total > 0:
+                        self.total -= 1
+                    if self.finished > 0:
+                        self.finished -= 1
+                    removed += 1
+                    emits.append({'type': 'removed', 'id': rid})
+                else:
+                    # 还在排队/计算中：标记取消，由工作线程发出 removed
+                    self.cancelled.add(rid)
+                    removed += 1
+                    emits.append({'type': 'removed', 'id': rid})
+        for ev in emits:
+            self._emit(ev)
+        if removed:
+            self._status(None, self.total > self.finished)
+            self._emit({'type': 'excel', **self.excel.status()})
+        return {'removed': removed, 'excel_deleted': excel_deleted}
 
     def copy_md5(self, md5):
         return set_clipboard(md5 or '')
@@ -581,7 +670,10 @@ class Api:
             with self.lock:
                 stale = job['gen'] != self.gen
             if stale:
-                self._emit({'type': 'stopped', 'id': job['id']})
+                if job['id'] in self.cancelled:
+                    self._emit({'type': 'removed', 'id': job['id']})
+                else:
+                    self._emit({'type': 'stopped', 'id': job['id']})
                 continue
             path, jid = job['path'], job['id']
             name = os.path.basename(path)
@@ -608,7 +700,7 @@ class Api:
                     self.finished += 1
                     self.done.append(rec)
                 rec['excel'] = self.excel.append([fmt_ts(time.time()), name, '读取失败：%s' % e,
-                                                  0, '-', '-', '-', round(elapsed, 3), '—', path])
+                                                  0, '-', '-', '-', round(elapsed, 3), '—', path], rid=jid)
                 self._emit(dict(type='done', **rec))
                 self._status(None, self.total > self.finished)
                 continue
@@ -616,8 +708,19 @@ class Api:
                 with self.lock:
                     if job['gen'] == self.gen:
                         self.total -= 1
-                self._emit({'type': 'stopped', 'id': jid})
-                self._status('已停止', False)
+                if jid in self.cancelled:
+                    self._emit({'type': 'removed', 'id': jid})
+                    self._status(None, self.total > self.finished)
+                else:
+                    self._emit({'type': 'stopped', 'id': jid})
+                    self._status('已停止', False)
+                continue
+
+            if jid in self.cancelled:
+                with self.lock:
+                    self.total -= 1
+                self._emit({'type': 'removed', 'id': jid})
+                self._status(None, self.total > self.finished)
                 continue
 
             elapsed = time.perf_counter() - t0
@@ -634,7 +737,7 @@ class Api:
                    'ctime': fmt_ts(_safe_ctime(path)), 'mtime': fmt_ts(os.path.getmtime(path)),
                    'elapsed': elapsed, 'verify': verify}
             ex = self.excel.append([now_s, name, md5, size, human_size(size),
-                                    rec['ctime'], rec['mtime'], round(elapsed, 3), verify, path])
+                                    rec['ctime'], rec['mtime'], round(elapsed, 3), verify, path], rid=jid)
             rec['excel'] = ex
             with self.lock:
                 self.finished += 1

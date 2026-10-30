@@ -4,7 +4,7 @@ macOS 风格的 Windows 桌面 MD5 校验工具：拖入即算，结果自动写
 
 ![icon](icon.png)
 
-**V2.1：单文件 exe 发布，免 Python 环境，双击即用；启动画面 + 窗口就绪后才显示，告别黑屏等待。**
+**V2.2：新增勾选删除——勾选文件后「删除选中」可同时移除列表卡片与 Excel 对应行；「清空」按钮同步清空 Excel 全部记录（含历史）。V2.1：单文件 exe 发布，免 Python 环境，双击即用；启动画面 + 窗口就绪后才显示，告别黑屏等待。**
 
 ## 下载使用
 
@@ -24,7 +24,8 @@ macOS 风格的 Windows 桌面 MD5 校验工具：拖入即算，结果自动写
 - **校验比对**：粘贴已知 MD5（32 位），算完自动显示 ✅一致 / ❌不一致
 - **Excel 自动记录**：每算完一个文件立刻把「文件名 + MD5」等追加写入 exe 目录的 `MD5校验记录.xlsx`（含大小、创建/修改时间、耗时、文件路径），持续累积；表格被 Excel/WPS 占用时自动另存新表
 - **复制 / 导出 TXT**：一键复制全部结果，或另存 txt 报告
-- **停止 / 清空**：中断计算、清空列表
+- **勾选删除（V2.2）**：勾选任意文件卡片，点「删除选中」，列表卡片与 Excel 中对应行一起删除；排队/计算中的任务也会安全取消
+- **停止 / 清空**：中断计算、清空列表；「清空」同时清空 Excel 记录表的全部数据行（包括之前累积的历史记录）
 
 ## 界面
 
@@ -44,10 +45,12 @@ python MD5校验工具.py
 ```bat
 pip install pyinstaller
 pyinstaller --onefile --noconsole --icon app.ico --name "MD5校验工具" ^
-    --add-data "ui.html;." --add-data "app.ico;." ^
+    --add-data "ui.html;." --add-data "app.ico;." --add-data "bottle.py;." ^
     --collect-all webview --collect-all pythonnet --collect-all clr_loader ^
-    --splash icon.png MD5校验工具.py
+    --exclude-module bottle --splash icon.png MD5校验工具.py
 ```
+
+> bottle.py 是从 site-packages 复制到本目录的完整副本：Python 3.10 下 PyInstaller 静态扫描大文件 bottle.py 会崩溃，故排除分析、以数据文件形式随包，运行时正常导入。
 
 > 注意：pywebview 需与本机 WebView2 运行时版本匹配。开发机用的 pywebview 6.2.1 需要较新的运行时（2025 年后更新的 Win10/11 均可）。
 
@@ -58,6 +61,7 @@ MD5校验工具Pro/
 ├── MD5校验工具.py        # 主程序（MD5 计算、Excel 记录、窗口控制）
 ├── ui.html               # 界面（单文件 HTML/CSS/JS）
 ├── app.ico / icon.png    # 应用图标（icon.png 兼作打包启动画面）
+├── bottle.py             # 随包分发的 bottle 运行时（打包用，见上方说明）
 ├── dist/MD5校验工具.exe   # 打包产物（单文件，免环境直接运行）
 ├── 启动MD5校验工具.bat     # 启动脚本（优先 exe，兼容源码运行）
 └── 使用说明.md            # 中文使用手册
