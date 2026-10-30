@@ -903,13 +903,17 @@ def main():
             t.daemon = True
             t.start()
 
-    storage = None
+    # 持久化 WebView2 用户目录：二次启动热启动更快；配合单实例互斥避免目录锁冲突。
+    # 目录优先级：LOCALAPPDATA → USERPROFILE\AppData\Local（兑底，绝不落在 exe 目录里攒缓存）
+    base = (os.environ.get('LOCALAPPDATA')
+            or (os.path.join(os.environ['USERPROFILE'], 'AppData', 'Local')
+                if os.environ.get('USERPROFILE') else None)
+            or APP_DIR)
+    storage = os.path.join(base, 'MD5校验工具')
     try:
-        storage = os.path.join(os.environ.get('LOCALAPPDATA') or APP_DIR, 'MD5校验工具')
         os.makedirs(storage, exist_ok=True)
     except Exception:
         storage = None
-    # 持久化 WebView2 用户目录：二次启动热启动更快；配合单实例互斥避免目录锁冲突
     webview.start(bootstrap, private_mode=False, storage_path=storage)
 
 
