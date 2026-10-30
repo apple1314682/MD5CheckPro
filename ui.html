@@ -128,6 +128,7 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .arrows button{width:20px;height:17px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--sub);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:.12s}
 .arrows button:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:rgba(10,132,255,.12)}
 .arrows button:disabled{opacity:.25;cursor:default}
+.rcard.moving{border-color:var(--accent);background:rgba(10,132,255,.08)}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -480,16 +481,21 @@ function addPaths(arr){
 /* ---------- 卡片上下移动（按住 ▲▼ 可连续移动） ---------- */
 let _stopHold = null;
 function bindHold(btn){
-  let t1 = null, t2 = null, steps = 0, id = null, dir = 0;
+  let t1 = null, t2 = null, steps = 0, id = null, dir = 0, cardEl = null;
   const stop = () => {
     if(t1) { clearTimeout(t1); t1 = null; }
     if(t2) { clearInterval(t2); t2 = null; }
+    if(cardEl) { cardEl.classList.remove('moving'); cardEl = null; }
+    if(held) { sendOrder(); held = false; }
     if(_stopHold === stop) _stopHold = null;
   };
+  let held = false;
   btn.addEventListener('mousedown', e => {
     e.preventDefault();
     const card = btn.closest('.rcard'); if(!card) return;
-    id = +card.dataset.id; dir = +btn.dataset.dir; steps = 0;
+    id = +card.dataset.id; dir = +btn.dataset.dir; steps = 0; held = true;
+    cardEl = card;
+    cardEl.classList.add('moving');
     moveCard(id, dir);
     t1 = setTimeout(function tick(){
       const s = state.get(id); if(!s) { stop(); return; }
@@ -502,7 +508,6 @@ function bindHold(btn){
     }, 330);
     _stopHold = stop;
   });
-  btn.addEventListener('mouseleave', stop);
 }
 document.addEventListener('mouseup', () => { if(_stopHold) _stopHold(); });
 function moveCard(id, dir){
@@ -511,7 +516,8 @@ function moveCard(id, dir){
   if(dir < 0 && !el.previousElementSibling) return;
   if(dir > 0 && !el.nextElementSibling) return;
   cardsEl.insertBefore(el, dir < 0 ? el.previousElementSibling : el.nextElementSibling.nextElementSibling);
-  sendOrder();
+  el.scrollIntoView({block: 'nearest'});
+  refreshArrows();
 }
 function sendOrder(){
   refreshArrows();
