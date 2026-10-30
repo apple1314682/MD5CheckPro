@@ -121,7 +121,7 @@ _enable_dpi_awareness()
 UI_PATH = os.path.join(BUNDLE_DIR, 'ui.html')
 ICON_PATH = os.path.join(BUNDLE_DIR, 'app.ico')
 APP_TITLE = 'MD5 校验工具 Pro'
-APP_VERSION = '2.5.2'
+APP_VERSION = '2.6'
 
 
 def human_size(n):
@@ -806,11 +806,11 @@ def _autoquit_seconds():
 
 
 def _ensure_single_instance():
-    """已有实例运行时，把旧窗口调到前台并退出（避免 WebView2 用户目录被占用）"""
+    """已有实例运行时，把旧窗口调到前台并退出（避免多实例并发写同一个 Excel 记录表）"""
     try:
-        k32 = ctypes.windll.kernel32
-        k32.CreateMutexW(None, False, r'Local\MD5校验工具Pro单实例')
-        if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        k32.CreateMutexW(None, False, 'Local\\MD5校验工具Pro单实例')
+        if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
             u32 = ctypes.windll.user32
             hwnd = u32.FindWindowW(None, APP_TITLE)
             if hwnd:

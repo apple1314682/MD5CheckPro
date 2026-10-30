@@ -128,7 +128,11 @@ main{height:calc(100% - 44px);display:flex;flex-direction:column;padding:6px 18p
 .arrows button{width:20px;height:17px;border:1px solid var(--line2);background:rgba(255,255,255,.05);color:var(--sub);border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:.12s}
 .arrows button:hover:not(:disabled){color:var(--accent);border-color:var(--accent);background:rgba(10,132,255,.12)}
 .arrows button:disabled{opacity:.25;cursor:default}
-.rcard.moving{border-color:var(--accent);background:rgba(10,132,255,.08)}
+.rcard{cursor:grab}
+.rcard:active{cursor:grabbing}
+.rcard.picked{border-color:var(--accent);background:rgba(10,132,255,.10);box-shadow:0 8px 22px rgba(0,0,0,.4);position:relative;z-index:5}
+body.picking{user-select:none}
+body.picking .rcard{cursor:grabbing}
 
 /* ---------- 底栏 ---------- */
 #bar{display:flex;align-items:center;gap:12px;flex:none;height:40px}
@@ -288,7 +292,6 @@ function addCard(ev){
   cardsEl.appendChild(el);
   emptyEl.style.display = 'none';
   state.set(ev.id, {name: ev.name, path: ev.path, el: el, status: 'queued', checked: false});
-  el.querySelectorAll('.arrows button').forEach(bindHold);
   refreshArrows();
   $('#btnClear').disabled = false;
   $('#list').scrollTop = $('#list').scrollHeight;
@@ -478,38 +481,44 @@ function addPaths(arr){
   });
 }
 
-/* ---------- 卡片上下移动（按住 ▲▼ 可连续移动） ---------- */
-let _stopHold = null;
-function bindHold(btn){
-  let t1 = null, t2 = null, steps = 0, id = null, dir = 0, cardEl = null;
-  const stop = () => {
-    if(t1) { clearTimeout(t1); t1 = null; }
-    if(t2) { clearInterval(t2); t2 = null; }
-    if(cardEl) { cardEl.classList.remove('moving'); cardEl = null; }
-    if(held) { sendOrder(); held = false; }
-    if(_stopHold === stop) _stopHold = null;
-  };
-  let held = false;
-  btn.addEventListener('mousedown', e => {
-    e.preventDefault();
-    const card = btn.closest('.rcard'); if(!card) return;
-    id = +card.dataset.id; dir = +btn.dataset.dir; steps = 0; held = true;
-    cardEl = card;
-    cardEl.classList.add('moving');
-    moveCard(id, dir);
-    t1 = setTimeout(function tick(){
-      const s = state.get(id); if(!s) { stop(); return; }
-      const el = s.el;
-      if(dir < 0 && !el.previousElementSibling) { stop(); return; }
-      if(dir > 0 && !el.nextElementSibling) { stop(); return; }
-      moveCard(id, dir);
-      steps++;
-      t2 = setTimeout(tick, steps < 6 ? 110 : 45);
-    }, 330);
-    _stopHold = stop;
-  });
+/* ---------- 卡片拖动互换：按住拿起，滑到哪个就和哪个换位 ---------- */
+let pick = null;   // {id, el}
+function pickStart(e){
+  if(e.button !== 0) return;
+  if(e.target.closest('.ck') || e.target.closest('.icopy') || e.target.closest('.mval') || e.target.closest('.arrows')) return;
+  const card = e.target.closest('.rcard'); if(!card) return;
+  pick = {id: +card.dataset.id, el: card};
+  card.classList.add('picked');
+  document.body.classList.add('picking');
+  e.preventDefault();
 }
-document.addEventListener('mouseup', () => { if(_stopHold) _stopHold(); });
+function pickMove(e){
+  if(!pick) return;
+  const lr = $('#list').getBoundingClientRect();
+  if(e.clientY < lr.top + 36) $('#list').scrollTop -= 10;
+  else if(e.clientY > lr.bottom - 36) $('#list').scrollTop += 10;
+  const under = document.elementFromPoint(e.clientX, e.clientY);
+  const card = under && under.closest('.rcard');
+  if(!card || card === pick.el || card.classList.contains('picked')) return;
+  // 和经过的卡片互换位置
+  const marker = document.createElement('div');
+  cardsEl.insertBefore(marker, pick.el);
+  cardsEl.insertBefore(pick.el, card);
+  cardsEl.insertBefore(card, marker);
+  marker.remove();
+  pick.el.scrollIntoView({block: 'nearest'});
+}
+function pickEnd(){
+  if(!pick) return;
+  pick.el.classList.remove('picked');
+  document.body.classList.remove('picking');
+  pick = null;
+  sendOrder();
+}
+cardsEl.addEventListener('mousedown', pickStart);
+document.addEventListener('mousemove', pickMove);
+document.addEventListener('mouseup', pickEnd);
+window.addEventListener('blur', () => { if(pick) pickEnd(); });
 function moveCard(id, dir){
   const s = state.get(id); if(!s) return;
   const el = s.el;
@@ -518,7 +527,13 @@ function moveCard(id, dir){
   cardsEl.insertBefore(el, dir < 0 ? el.previousElementSibling : el.nextElementSibling.nextElementSibling);
   el.scrollIntoView({block: 'nearest'});
   refreshArrows();
+  sendOrder();
 }
+cardsEl.addEventListener('click', e => {
+  const b = e.target.closest('.arrows button'); if(!b) return;
+  const card = b.closest('.rcard'); if(!card) return;
+  moveCard(+card.dataset.id, +b.dataset.dir);
+});
 function sendOrder(){
   refreshArrows();
   const order = Array.prototype.map.call(cardsEl.querySelectorAll('.rcard'), el => +el.dataset.id);
